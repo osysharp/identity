@@ -1,0 +1,115 @@
+// Osysharp.Identity, proved through an app that brings its own kind of account.
+
+using Osysharp.Identity;
+using IdentityKitTests;
+
+[TestFixture]
+void Club() {
+  var ops = new Member { Email = "ops@club.test", Number = "0000", PinHash = Security.HashPassword("0000") };
+  new RoleGrant { Member = ops, Role = ClubRole.Authenticator };
+  var ada = new Member { Email = "ada@club.test", Number = "1001", PinHash = Security.HashPassword("4321"), DisplayName = "Ada" };
+  new RoleGrant { Member = ada, Role = ClubRole.Member };
+  var sam = new Member { Email = "sam@club.test", Number = "1002", PinHash = Security.HashPassword("8765"), DisplayName = "Sam" };
+  new RoleGrant { Member = sam, Role = ClubRole.Member };
+  new RoleGrant { Member = sam, Role = ClubRole.Steward };
+}
+
+principal Ada => Member.Single(m => m.Number == "1001");
+principal Sam => Member.Single(m => m.Number == "1002");
+// Made by a test, not the fixture: the member who joins.
+principal Lin => Member.Single(m => m.Number == "1003");
+
+[Test(Club)]
+void a_member_signs_in_with_the_apps_own_method() {
+  string ticket = "";
+  runas (AuthBootstrap) { ticket = SignInWithPin("1001", "4321"); }
+  Assert.NotEqual("", ticket);
+}
+
+[Test(Club)]
+void a_wrong_pin_and_an_unknown_number_both_get_nothing() {
+  string wrong = "x";
+  string unknown = "x";
+  runas (AuthBootstrap) { wrong = SignInWithPin("1001", "0000"); unknown = SignInWithPin("9999", "4321"); }
+  Assert.Equal("", wrong);
+  Assert.Equal("", unknown);
+}
+
+[Test(Club)]
+void a_deactivated_member_cannot_sign_in() {
+  runas (AuthBootstrap) { Member.Single(m => m.Number == "1001").IsActive = false; }
+  string ticket = "x";
+  runas (AuthBootstrap) { ticket = SignInWithPin("1001", "4321"); }
+  Assert.Equal("", ticket);
+}
+
+[Test(Club)]
+void joining_stores_a_normalised_address_and_grants_the_role() {
+  string ticket = "";
+  runas (AuthBootstrap) { ticket = Join("  Lin@Club.Test ", "1003", "1111"); }
+  Assert.NotEqual("", ticket);
+  runas (AuthBootstrap) { Assert.Equal("lin@club.test", Member.Single(m => m.Number == "1003").Email); }
+  // The grant is read by the person who holds it: `RoleGrant` hides every row from the sign-in flow, which only ever
+  // makes one — so asking as `AuthBootstrap` answers false whether or not the grant was written.
+  runas (Lin) { Assert.True(RoleGrant.Any(g => g.Member == Lin && g.Role == ClubRole.Member)); }
+}
+
+[Test(Club)]
+void one_address_is_one_account_across_every_kind() {
+  runas (AuthBootstrap) {
+    Assert.Throws(() => { Join("ada@club.test", "1004", "2222"); });
+  }
+}
+
+[Test(Club)]
+void user_is_the_contracts_principal_and_is_tells_the_kinds_apart() {
+  runas (Ada) { Assert.True(AmMember()); }
+}
+
+[Test(Club)]
+void members_see_each_other_but_never_a_pin() {
+  runas (Ada) {
+    var sam = Member.Single(m => m.Number == "1002");
+    Assert.Equal("Sam", sam.DisplayName);
+    Assert.Null(sam.PinHash);
+    Assert.Null(Member.Single(m => m.Number == "1001").PinHash);
+  }
+}
+
+[Test(Club)]
+void a_member_renames_themself_but_cannot_change_the_address_that_signs_in() {
+  runas (Ada) { SetMyName("Ada L."); }
+  runas (Ada) { Assert.Equal("Ada L.", Member.Single(m => m.Number == "1001").DisplayName); }
+  runas (Ada) { Assert.Denied(() => SetMyEmail("mallory@club.test")); }
+}
+
+[Test(Club)]
+void a_member_cannot_grant_themself_a_role() {
+  runas (Ada) { Assert.Denied(() => new RoleGrant { Member = Ada, Role = ClubRole.Steward }); }
+}
+
+[Test(Club)]
+void a_rule_over_the_apps_own_role_reads_the_contracts_grants() {
+  runas (Sam) { new StewardNote { Body = "The hall is booked." }; }
+  runas (Sam) { Assert.Equal(1, StewardNote.Count()); }
+  runas (Ada) { Assert.Equal(0, StewardNote.Count()); }
+}
+
+/// A page that hands out roles offers the club's own list (`app.Roles`), in its order, with its words — and never the
+/// sign-in flow's role.
+[Test(Club)]
+void a_page_offers_the_roles_the_club_lists_in_its_order() {
+  var offered = OfferedRoles();
+  Assert.Equal(["Member", "Steward"], offered.Select(o => o.Label).ToList());
+  Assert.Equal(ClubRole.Steward, offered[1].Role);
+  Assert.Equal("Keeps the hall and posts the notices.", offered[1].Description);
+  Assert.False(offered.Any(o => o.Role == ClubRole.Authenticator));
+}
+
+[Test(Club)]
+void each_person_sees_their_own_roles_and_nobody_elses() {
+  runas (Ada) {
+    Assert.True(RoleGrant.Any(g => g.Member == Ada));
+    Assert.False(RoleGrant.Any(g => g.Member == Sam));
+  }
+}

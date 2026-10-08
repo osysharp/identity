@@ -1,0 +1,213 @@
+namespace Osysharp.Identity;
+
+// ⚠ Appended, never inserted: an enum is stored by position.
+/// Where an account comes from — made here (a password, a code), or provided by the organisation's identity provider
+/// (single sign-on, and later SCIM provisioning, which keeps `ExternalId` in step).
+public enum IdentitySource {
+  [Label("This app")] Local,
+  [Label("Identity provider")] Idp,
+}
+
+/// Someone who signs in. The base of every kind of account: `Osysharp.Accounts`' `User` derives from it, and so may an
+/// app's own type (`entity Member : Principal { … }`) when it signs people in some other way. `user` in a security rule
+/// is a `Principal`, and `user is User` / `user is Member` tells the kinds apart.
+///
+/// ⚑ NEVER CREATED DIRECTLY. It is the base a kind of account derives from — the platform refuses `abstract entity`, so
+///   this is a convention the kits keep, not a rule the compiler enforces.
+///
+/// ⚑ THE ADDRESS IS STORED NORMALISED — trimmed and lower-case (`NormalisedEmail`) — so `Ada@x.se ` and `ada@x.se` are
+///   one account, and `[Unique]` means what it says. Every kit writes it through that function; so should an app.
+// One address, one account, across EVERY kind of account — that is the point of the base, so the compiler's note that
+// `[Unique]` spans the hierarchy is the design, not a surprise, and is not repeated in every app that uses this.
+[SuppressWarning("UNIQUE_SPANS_HIERARCHY")]
+[Principal]
+public entity Principal {
+  /// The address that signs in and that mail goes to. Unique across every kind of account — they share one table.
+  [Required, Unique("That address already has an account."), MaxLength(255)] string Email;
+  /// What other people see — a name, not an address.
+  [MaxLength(200)] string DisplayName = "";
+  /// An account that is not active cannot sign in. It is kept, not deleted: work it did still names it.
+  bool IsActive = true;
+  /// The identity provider's own id for this person, for an account it provides.
+  [MaxLength(255)] string? ExternalId;
+  IdentitySource Source = IdentitySource.Local;
+  /// When a message sent to `Email` was received and acted on — null until then. Changing the address clears it.
+  DateTime? EmailVerifiedAt;
+  DateTime? LastLoginAt;
+  /// The hash of this account's API key — how a caller that is a program rather than a person (a service, an agent)
+  /// authenticates. Minted with `osy user apikey generate`; the key itself is shown once and kept nowhere. Null: no key.
+  [MaxLength(255)] string? ApiKeyHash;
+  /// A second key's hash, so a key can be replaced without a moment when neither works.
+  [MaxLength(255)] string? ApiKeyHash2;
+  /// When the key in `ApiKeyHash` was last used — written by the platform as a request presents it (to the minute).
+  DateTime? ApiKeyUsedAt;
+  /// When the key in `ApiKeyHash2` was last used.
+  DateTime? ApiKey2UsedAt;
+
+  // ⚠ This is a package's entity, so its block is the FLOOR every app — and every type derived from it — may only
+  //   tighten (SECURITY-INVARIANT(a-package-floor-covers-its-subtypes)). One rule per kind of caller: `when` is who,
+  //   `where` is which rows, and the floor is derived exactly per kind of caller.
+  security {
+    // Everyone signed in sees who else is here — a team's directory, which is what a business app needs to assign work.
+    // An app whose people must not see each other narrows it — here or on the type its accounts ARE; a deny an app
+    // states on a base binds every type derived from it (SECURITY-INVARIANT(a-base-types-deny-covers-its-subtypes)):
+    //   `partial entity Principal { security { deny read when !IsLead where Id != user.Id; } }`
+    allow read when IsAuthenticated || IsAuthenticator;
+    // Accounts are made by the sign-in flow (sign-up, an invitation) and by an operator (`osy user add`), never by
+    // app code running as someone.
+    allow create when IsAuthenticator;
+    // A person edits their own account; the sign-in flow edits any.
+    allow update when IsAuthenticated || IsAuthenticator where Id == user.Id;
+    allow update when IsAuthenticator;
+    // …but not what the account's trust rests on. The address that signs in changes only through a verified change;
+    // whether it was proven, where the account comes from, whether it may sign in, and when it last did, are the
+    // sign-in flow's to write.
+    deny update Email when !IsAuthenticator;
+    deny update EmailVerifiedAt when !IsAuthenticator;
+    deny update Source when !IsAuthenticator;
+    deny update ExternalId when !IsAuthenticator;
+    deny update IsActive when !IsAuthenticator;
+    deny update LastLoginAt when !IsAuthenticator;
+    // An API key's hash is a credential: nobody but the sign-in flow reads it (else it rides `Session.CurrentUser` to a
+    // browser), and nobody signed in writes it — the platform mints and revokes keys outside the app's rules.
+    deny read ApiKeyHash when !IsAuthenticator;
+    deny read ApiKeyHash2 when !IsAuthenticator;
+    deny update ApiKeyHash when !IsAuthenticator;
+    deny update ApiKeyHash2 when !IsAuthenticator;
+    deny update ApiKeyUsedAt when !IsAuthenticator;
+    deny update ApiKey2UsedAt when !IsAuthenticator;
+  }
+}
+
+/// A role a person holds — a member of the APP's `[Role]` enum, which this package never sees (`role` is the app's enum,
+/// bound when the package is compiled into the app).
+///
+/// ⚑ THE APP'S TO ADMINISTER, so it is `Extensible`: who may grant a role is the app's decision, stated beside its roles
+///   — `partial entity RoleGrant { security { allow read, create, delete when IsAdmin; } }`. The package grants the one
+///   thing it needs: the sign-in flow gives a new account the role the app chose for it.
+///
+/// ⚑ UNSCOPED. A role here holds everywhere in the app. A role held within one organisation is a different row with a
+///   different meaning, and `Osysharp.Organizations` keeps it in its own membership table — never as a nullable column
+///   here, which every existing `RoleGrant.Any(…)` policy would silently read as app-wide.
+///
+/// ⚑ ONE ROW PER PERSON AND ROLE. Two promotions of one person made at the same moment each looked, found no grant, and
+///   wrote one — two identical rows. The unique index makes the second impossible whatever the code above it checked:
+///   the later commit is refused with "They already hold that role.", which a grant path that may race (the People kit's
+///   `AccessChange`) takes as "already done". Guarded by RoleGrantIsUniqueUnderConcurrencyTests.
+[Authority(Extensible)]
+[Unique(Member, Role, "They already hold that role.")]
+[RoleGrant]
+public entity RoleGrant {
+  [Required] Principal Member;
+  [Required] role Role;
+  security {
+    // Each person sees their own roles (a page asks before it offers something) and nobody else's. What a role unlocks
+    // is answered by the platform from the caller's own role names, never by anybody reading the table.
+    // ⚑ THE SIGN-IN FLOW READS THEM TOO, to decide what a sign-in must ask for — an app says "every admin uses a code"
+    //   (Osysharp.Accounts' `SecondFactorPolicy`) and the flow has to know who is an admin. That flow already reads the
+    //   hash, makes accounts and grants roles, so reading which roles an account holds gives it nothing it lacked.
+    allow read when IsAuthenticated || IsAuthenticator where Member == user;
+    allow read when IsAuthenticator;
+    allow create when IsAuthenticator;
+  }
+}
+
+/// The sign-in flow: an `[AuthMethod]` the app wires into `app.AuthBootstrap`, running as the ephemeral principal that
+/// bears the app's `Authenticator` role — the ONLY caller that may read a credential, make an account or grant a role.
+/// A real account granted `Authenticator` (an operator's service account) satisfies it too.
+///
+/// ⛔ NOT `IsAuthenticated`, which is every signed-in person. Mistaking one for the other either shows every hash to
+///    everyone or locks everyone out.
+policy IsAuthenticator => RoleGrant.Any(g => g.Member == user && g.Role == role.Authenticator);
+
+/// An address as it is stored and compared: trimmed and lower-case.
+public string NormalisedEmail(string email) {
+  return email.Trim().ToLower();
+}
+
+/// Does this look like an address? Deliberately loose — the only real test of an address is a message it receives
+/// (`Osysharp.Accounts`' verification). This catches the typing mistakes a form should catch at once.
+public bool LooksLikeEmail(string email) {
+  var e = email.Trim();
+  var at = e.IndexOf("@");
+  return at > 0 && at < e.Length - 3 && e.Substring(at + 1).Contains(".") && !e.Contains(" ");
+}
+
+/// The signed-in person, or null for a visitor.
+public Principal? CurrentPrincipal() {
+  return Session.CurrentUser;
+}
+
+// ── how the app's roles read to a person ──────────────────────────────────────────────────────────────────────────────
+
+/// One of the app's roles as a person reads it — what a page that hands roles out (an invitation, the user manager)
+/// offers, and how it names a role somebody holds.
+public class RoleChoice {
+  public role? Role = null;
+  /// Its name for people — "Agent".
+  public string Label = "";
+  /// What holding it means, in a line — "Works tickets: replies, notes, assigns."
+  public string Description = "";
+}
+
+/// The roles the app hands out through its pages, in the order to offer them — `app.Roles = new RolesSetup { … }`:
+///
+///     app.Roles = new RolesSetup { Offered = [
+///       new RoleChoice { Role = AppRole.Agent, Label = "Agent", Description = "Works tickets." },
+///       new RoleChoice { Role = AppRole.Admin, Label = "Admin", Description = "Runs the desk." },
+///     ] };
+///
+/// ⚑ A ROLE NOT LISTED IS NEVER OFFERED — `Authenticator` (the sign-in flow's own) and any role an app keeps for its
+///   integrations stay out of every page that grants one; the kits that grant roles refuse one that is not here.
+[AppSetting("Roles")]
+public class RolesSetup {
+  public List<RoleChoice> Offered = [];
+  /// What the app does when somebody is given an app role, or loses one — `Events = new MyRoles()`. Default: nothing.
+  public RoleEvents Events = new RoleEvents();
+}
+
+/// Told when a person is given an app role or loses one, by whichever kit made the change — the user manager
+/// (`Osysharp.People`), an accepted invitation (`Osysharp.Invitations`), or a sign-up's `SignupRole`/`FirstAccountRole`
+/// (`Osysharp.Accounts`). Derive and override; it runs inside the
+/// change's own write (the run that applied it, as the system), so what it writes lands or fails with the grant:
+///
+///     public class DeskRoles : RoleEvents {
+///       public override void Granted(Principal person, role r) { JoinTheDesk(person); }   // the app picks the queues
+///     }
+///     app.Roles = new RolesSetup { Offered = [ … ], Events = new DeskRoles() };
+///
+/// Told once per change that took effect: giving a role somebody already holds tells nothing.
+public class RoleEvents {
+  public virtual void Granted(Principal person, role r) { }
+  public virtual void Revoked(Principal person, role r) { }
+}
+
+/// The roles the app offers, in its order — a COPY a page may hold (the setting itself stays on the server: a setting may
+/// hold credentials, so no part of one is ever handed to a browser as it is).
+[AllowAnonymous]
+public List<RoleOption> OfferedRoles() {
+  List<RoleOption> all = [];
+  foreach (var c in App.Setting<RolesSetup>().Offered) {
+    all.Add(new RoleOption { Role = c.Role, Label = c.Label, Description = c.Description });
+  }
+  return all;
+}
+
+/// One offered role, as a page holds it — what `OfferedRoles` answers.
+public class RoleOption {
+  public role? Role = null;
+  public string Label = "";
+  public string Description = "";
+}
+
+/// Is `r` one the app offers through its pages?
+public bool IsOfferedRole(role r) {
+  foreach (var c in App.Setting<RolesSetup>().Offered) { if (c.Role != null && c.Role.Value == r) { return true; } }
+  return false;
+}
+
+/// A role's name for people — its `RoleChoice.Label`, or "" when the app does not offer it.
+public string RoleLabel(role r) {
+  foreach (var c in App.Setting<RolesSetup>().Offered) { if (c.Role != null && c.Role.Value == r) { return c.Label; } }
+  return "";
+}

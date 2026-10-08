@@ -1,0 +1,74 @@
+namespace IdentityKitTests;
+
+using Osysharp.Identity;
+
+// A club that signs its members in with a membership number and a PIN — nothing Osysharp.Accounts offers — and still
+// gets the contract's directory, roles and floor.
+
+[Role] enum ClubRole { Authenticator, Member, Steward }
+
+policy IsSteward => RoleGrant.Any(g => g.Member == user && g.Role == ClubRole.Steward);
+
+/// The app's own kind of account.
+entity Member : Principal {
+  [Required, Unique, MaxLength(20)] string Number;
+  [MaxLength(200)] string PinHash;
+  security {
+    // Its own grants, inside the contract's floor: the sign-in flow reads and makes members; members see each other.
+    allow read when IsAuthenticated || IsAuthenticator;
+    allow create when IsAuthenticator;
+    allow update when IsAuthenticated || IsAuthenticator where Id == user.Id;
+    allow update when IsAuthenticator;
+    deny read PinHash when !IsAuthenticator;
+  }
+}
+
+/// A notice only stewards may read — a rule over the app's own role, held in the contract's grant table.
+entity StewardNote {
+  [Required, MaxLength(200)] string Body;
+  security { allow read, create when IsSteward; }
+}
+
+/// The club's own sign-in: a number and a PIN. Spends the same time on an unknown number as on a wrong PIN.
+[AuthMethod]
+string SignInWithPin(string number, string pin) {
+  var m = Member.Where(x => x.Number == number.Trim()).FirstOrDefault();
+  if (m == null || !m.IsActive) { Security.VerifyPassword(pin); return ""; }
+  if (!Security.VerifyPassword(pin, m.PinHash)) { return ""; }
+  m.LastLoginAt = DateTime.UtcNow;
+  return Security.IssueJwt(m.Id, m.Email);
+}
+
+/// Join the club: a member row and the Member role.
+[AuthMethod]
+string Join(string email, string number, string pin) {
+  if (!LooksLikeEmail(email)) { throw new ValidationException("That does not look like an email address."); }
+  var m = new Member { Email = NormalisedEmail(email), Number = number.Trim(), PinHash = Security.HashPassword(pin),
+                       DisplayName = number.Trim() };
+  new RoleGrant { Member = m, Role = ClubRole.Member };
+  return Security.IssueJwt(m.Id, m.Email);
+}
+
+/// Whether the signed-in principal is one of this app's members — `user is Member` in ordinary code.
+bool AmMember() { return Session.CurrentUser is Member; }
+
+/// Change one's own address directly — which the contract refuses for anybody but the sign-in flow.
+void SetMyEmail(string email) {
+  var me = Session.CurrentUser;
+  me.Email = email;
+}
+
+/// Change one's own display name — which the contract allows.
+void SetMyName(string name) {
+  var me = Session.CurrentUser;
+  me.DisplayName = name;
+}
+
+app.AuthBootstrap = new AuthBootstrap { Role = ClubRole.Authenticator, Login = SignInWithPin, Signup = Join };
+
+// The roles the club hands out on its pages, in the order to offer them. `Authenticator` is the sign-in flow's own and
+// is not listed, so no page ever offers it.
+app.Roles = new RolesSetup { Offered = [
+  new RoleChoice { Role = ClubRole.Member, Label = "Member", Description = "Books the hall and reads the notices." },
+  new RoleChoice { Role = ClubRole.Steward, Label = "Steward", Description = "Keeps the hall and posts the notices." },
+] };

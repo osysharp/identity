@@ -1,0 +1,18 @@
+// Osysharp.Identity — the contract every kit that knows about people builds on: who signs in (`Principal`), and which of
+// the app's roles each of them holds (`RoleGrant`).
+//
+// ⚑ A CONTRACT, NOT A LOGIN. It has no password and no pages. `Osysharp.Accounts` is the default way in — its
+//   `User : Principal` adds the credential, sign-up, reset and verification — and an app that signs people in some other
+//   way (a company's identity provider, a code in a text message) derives its own type from `Principal` instead. Every
+//   other kit (invitations, organizations, the user manager) references `Principal`, so it works either way.
+//
+// ⚑ THE ROLES ARE THE APP'S. An application has one `[Role]` enum, and it is the app's own — a helpdesk's Agent, Lead
+//   and Admin. `RoleGrant.Role` is typed `role`, which the platform binds to that enum when this package is compiled
+//   into the app, so a grant is an ordinary row of the app's own vocabulary.
+package Osysharp.Identity {
+  version     "0.7.0";
+  minPlatform "0.9.0";
+  summary     "who signs in, and which of the app's roles each person holds — the base every people-aware kit builds on.";
+  model "model/*.osy";
+  tests "tests";
+}
