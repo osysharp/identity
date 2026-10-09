@@ -2,7 +2,7 @@ namespace Osysharp.Identity;
 
 // ⚠ Appended, never inserted: an enum is stored by position.
 /// Where an account comes from — made here (a password, a code), or provided by the organisation's identity provider
-/// (single sign-on, and later SCIM provisioning, which keeps `ExternalId` in step).
+/// (single sign-on, whose key for the account is `ExternalId`).
 public enum IdentitySource {
   [Label("This app")] Local,
   [Label("Identity provider")] Idp,
@@ -94,7 +94,7 @@ public entity Principal {
 /// ⚑ ONE ROW PER PERSON AND ROLE. Two promotions of one person made at the same moment each looked, found no grant, and
 ///   wrote one — two identical rows. The unique index makes the second impossible whatever the code above it checked:
 ///   the later commit is refused with "They already hold that role.", which a grant path that may race (the People kit's
-///   `AccessChange`) takes as "already done". Guarded by RoleGrantIsUniqueUnderConcurrencyTests.
+///   `AccessChange`) takes as "already done".
 [Authority(Extensible)]
 [Unique(Member, Role, "They already hold that role.")]
 [RoleGrant]
