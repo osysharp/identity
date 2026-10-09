@@ -6,12 +6,21 @@
     {
       "name": "Osysharp.Identity",
       "kind": "package",
-      "version": "0.7.0",
-      "hash": "sha256:a8f780ee024fb27a6c1f909feb86fec10c8a176788acd8546d1380a9243575bd",
+      "version": "0.7.1",
+      "hash": "sha256:50eb5704ad6b27d284ce8b06b5604c8b95a01df1955674d38b798a95ae207022",
       "minPlatform": "0.9.0",
       "shadow": "app-forkable",
       "source": "workspace:kits/identity",
       "constraint": "0"
     }
-  ]
+  ],
+  "bridges": {
+    "searched": [
+      "workspace",
+      "platform"
+    ],
+    "skipped": [
+      "github: offline \u2014 the public catalog was not searched for bridges. Run \u0060osy lock\u0060 with a network to look."
+    ]
+  }
 }

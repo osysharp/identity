@@ -10,7 +10,7 @@
 //   and Admin. `RoleGrant.Role` is typed `role`, which the platform binds to that enum when this package is compiled
 //   into the app, so a grant is an ordinary row of the app's own vocabulary.
 package Osysharp.Identity {
-  version     "0.7.0";
+  version     "0.7.1";
   minPlatform "0.9.0";
   summary     "who signs in, and which of the app's roles each person holds — the base every people-aware kit builds on.";
   model "model/*.osy";

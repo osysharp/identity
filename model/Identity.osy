@@ -22,6 +22,7 @@ public enum IdentitySource {
 [SuppressWarning("UNIQUE_SPANS_HIERARCHY")]
 [Principal]
 public entity Principal {
+  [CreatedAt] DateTime? CreatedAt;
   /// The address that signs in and that mail goes to. Unique across every kind of account — they share one table.
   [Required, Unique("That address already has an account."), MaxLength(255)] string Email;
   /// What other people see — a name, not an address.
