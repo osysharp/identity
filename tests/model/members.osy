@@ -2,7 +2,7 @@ namespace IdentityKitTests;
 
 using Osysharp.Identity;
 
-// A club that signs its members in with a membership number and a PIN — nothing Osysharp.Accounts offers — and still
+// A club that signs its members in with a membership number and a PIN — nothing Osysharp.UserAccounts offers — and still
 // gets the contract's directory, roles and floor.
 
 [Role] enum ClubRole { Authenticator, Member, Steward }

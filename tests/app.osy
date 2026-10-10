@@ -1,5 +1,5 @@
 // The producer's test project for Osysharp.Identity — an app that brings its OWN kind of account (`Member : Principal`,
-// signing in with a membership number and a PIN) instead of Osysharp.Accounts' `User`. That is the case the contract
+// signing in with a membership number and a PIN) instead of Osysharp.UserAccounts' `User`. That is the case the contract
 // exists for, so it is the case its tests prove.
 app IdentityKitTests {
   model "model/**/*.osy";

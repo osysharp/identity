@@ -8,7 +8,7 @@ person, whichever of them the app uses.
   account), a display name, whether it may sign in, whether its address was proven, where it comes from.
 - **`RoleGrant`** — a role a person holds, as a member of the **app's own** `[Role]` enum.
 
-It has **no password and no pages**. [Osysharp.Accounts](https://osyrin.com/templates/kits/accounts/) is the default way in, adding
+It has **no password and no pages**. [Osysharp.UserAccounts](https://osyrin.com/templates/kits/user-accounts/) is the default way in, adding
 `User : Principal` with a password. An app that signs people in some other way derives its own type from `Principal`.
 
 ## Use it

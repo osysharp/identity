@@ -8,7 +8,7 @@ public enum IdentitySource {
   [Label("Identity provider")] Idp,
 }
 
-/// Someone who signs in. The base of every kind of account: `Osysharp.Accounts`' `User` derives from it, and so may an
+/// Someone who signs in. The base of every kind of account: `Osysharp.UserAccounts`' `User` derives from it, and so may an
 /// app's own type (`entity Member : Principal { … }`) when it signs people in some other way. `user` in a security rule
 /// is a `Principal`, and `user is User` / `user is Member` tells the kinds apart.
 ///
@@ -93,7 +93,7 @@ public entity Principal {
 ///
 /// ⚑ ONE ROW PER PERSON AND ROLE. Two promotions of one person made at the same moment each looked, found no grant, and
 ///   wrote one — two identical rows. The unique index makes the second impossible whatever the code above it checked:
-///   the later commit is refused with "They already hold that role.", which a grant path that may race (the People kit's
+///   the later commit is refused with "They already hold that role.", which a grant path that may race (the UserManagement kit's
 ///   `AccessChange`) takes as "already done".
 [Authority(Extensible)]
 [Unique(Member, Role, "They already hold that role.")]
@@ -105,7 +105,7 @@ public entity RoleGrant {
     // Each person sees their own roles (a page asks before it offers something) and nobody else's. What a role unlocks
     // is answered by the platform from the caller's own role names, never by anybody reading the table.
     // ⚑ THE SIGN-IN FLOW READS THEM TOO, to decide what a sign-in must ask for — an app says "every admin uses a code"
-    //   (Osysharp.Accounts' `SecondFactorPolicy`) and the flow has to know who is an admin. That flow already reads the
+    //   (Osysharp.UserAccounts' `SecondFactorPolicy`) and the flow has to know who is an admin. That flow already reads the
     //   hash, makes accounts and grants roles, so reading which roles an account holds gives it nothing it lacked.
     allow read when IsAuthenticated || IsAuthenticator where Member == user;
     allow read when IsAuthenticator;
@@ -127,7 +127,7 @@ public string NormalisedEmail(string email) {
 }
 
 /// Does this look like an address? Deliberately loose — the only real test of an address is a message it receives
-/// (`Osysharp.Accounts`' verification). This catches the typing mistakes a form should catch at once.
+/// (`Osysharp.UserAccounts`' verification). This catches the typing mistakes a form should catch at once.
 public bool LooksLikeEmail(string email) {
   var e = email.Trim();
   var at = e.IndexOf("@");
@@ -168,8 +168,8 @@ public class RolesSetup {
 }
 
 /// Told when a person is given an app role or loses one, by whichever kit made the change — the user manager
-/// (`Osysharp.People`), an accepted invitation (`Osysharp.Invitations`), or a sign-up's `SignupRole`/`FirstAccountRole`
-/// (`Osysharp.Accounts`). Derive and override; it runs inside the
+/// (`Osysharp.UserManagement`), an accepted invitation (`Osysharp.Invitations`), or a sign-up's `SignupRole`/`FirstAccountRole`
+/// (`Osysharp.UserAccounts`). Derive and override; it runs inside the
 /// change's own write (the run that applied it, as the system), so what it writes lands or fails with the grant:
 ///
 ///     public class DeskRoles : RoleEvents {
