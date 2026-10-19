@@ -38,6 +38,23 @@ The kit's rules hold on every type derived from `Principal`, whatever that type 
   asks for); only the sign-in flow grants one unless the app says otherwise;
 - `user` in every rule is the base `Principal`, and `user is Member` tells the kinds apart.
 
+## Which roles people are offered, and where they may be held
+
+`app.Roles` lists the roles the app's pages hand out (an invite form, a user manager), how each reads to a person, and
+where it may be held — across the app, only inside an organisation, or either (the default):
+
+```osy
+app.Roles = new RolesSetup { Offered = [
+  new RoleChoice { Role = AppRole.Agent, Label = "Agent", Description = "Works tickets." },
+  new RoleChoice { Role = AppRole.Owner, Label = "Owner", Description = "Runs one team.", HeldIn = RoleScope.Organization },
+  // Named where somebody holds it, never handed out by a page.
+  new RoleChoice { Role = AppRole.Operator, Label = "Operator", Description = "Runs the platform.", Grantable = false },
+] };
+```
+
+`OfferedRoles(RoleScope.App)` and `IsOfferedRole(r, RoleScope.Organization)` answer for one place; the kits that give
+roles offer and give each only where it may be held.
+
 ## Your own way in
 
 ```osy
@@ -66,7 +83,9 @@ app.AuthBootstrap = new AuthBootstrap { Role = AppRole.Authenticator, Login = Si
 ```
 
 Helpers: `NormalisedEmail(email)` (trimmed, lower-case — how addresses are stored and compared), `LooksLikeEmail(email)`,
-`CurrentPrincipal()`.
+`CurrentPrincipal()`, `PersonName(p)` (how a person is named to others — their name, else their address, else `""`
+for a system account, so a caller says "someone" rather than leave a blank) and `IsUnreachableAddress(email)` (an
+address under the reserved `.invalid` domain: a system account, which is mailed nothing and has no address to prove).
 
 ## Building your own on top of it
 

@@ -126,6 +126,24 @@ public string NormalisedEmail(string email) {
   return email.Trim().ToLower();
 }
 
+/// Is this an address no message can ever reach — one under the reserved `.invalid` domain (RFC 6761), which is how a
+/// system account is given the address every account must have (`the-platform@osyrin.invalid`)? Such an account is not
+/// a person: nothing is mailed to it, it is offered no verification, and it is not counted among people with an
+/// address still to prove.
+public bool IsUnreachableAddress(string email) {
+  return email.Trim().ToLower().EndsWith(".invalid");
+}
+
+/// How a person is named to OTHER people — "invited by …", "… invited you to …": their `DisplayName`, else their
+/// address (an account made without a name, such as an operator's from `osy user add`, has only that). "" when there is
+/// neither a name nor an address a person could write to (a system account — see `IsUnreachableAddress`): the caller
+/// then says "someone" in its own words, rather than printing a blank where a name belongs.
+/// ONE expression on purpose: a page may then call it in its render, where it runs on the client (a body of several
+/// statements could only run on the server).
+public string PersonName(Principal p) {
+  return p.DisplayName.Trim() != "" ? p.DisplayName.Trim() : (IsUnreachableAddress(p.Email) ? "" : p.Email);
+}
+
 /// Does this look like an address? Deliberately loose — the only real test of an address is a message it receives
 /// (`Osysharp.UserAccounts`' verification). This catches the typing mistakes a form should catch at once.
 public bool LooksLikeEmail(string email) {
@@ -149,6 +167,24 @@ public class RoleChoice {
   public string Label = "";
   /// What holding it means, in a line — "Works tickets: replies, notes, assigns."
   public string Description = "";
+  /// Where it may be held: across the app (a `RoleGrant`), only inside an organisation (an `Osysharp.Organizations`
+  /// membership's role), or either — the default. A role held only inside an organisation — "Owner" of a team — is
+  /// never offered, nor granted by the kits, as an app-wide role, and the reverse.
+  public RoleScope HeldIn = RoleScope.Anywhere;
+  /// Whether a page may hand it out. `false` lists a role only so a page can NAME it where somebody holds it — "Platform
+  /// admin" on a person an operator's tooling made one — while no page offers it, and the kits that grant roles refuse
+  /// to grant or take it (it is not in `OfferedRoles`, and `IsOfferedRole` answers false).
+  public bool Grantable = true;
+}
+
+/// Where an offered role may be held — `RoleChoice.HeldIn`.
+public enum RoleScope {
+  /// Either — across the app, or inside an organisation.
+  Anywhere,
+  /// Across the app: a `RoleGrant`.
+  App,
+  /// Only inside an organisation: the role a membership holds there.
+  Organization
 }
 
 /// The roles the app hands out through its pages, in the order to offer them — `app.Roles = new RolesSetup { … }`:
@@ -184,14 +220,21 @@ public class RoleEvents {
 }
 
 /// The roles the app offers, in its order — a COPY a page may hold (the setting itself stays on the server: a setting may
-/// hold credentials, so no part of one is ever handed to a browser as it is).
+/// hold credentials, so no part of one is ever handed to a browser as it is). `where` narrows it to the roles that may be
+/// held there: `RoleScope.App` for an app-wide grant, `RoleScope.Organization` for a role inside an organisation; the
+/// default, `Anywhere`, lists every offered role.
 [AllowAnonymous]
-public List<RoleOption> OfferedRoles() {
+public List<RoleOption> OfferedRoles(RoleScope where = RoleScope.Anywhere) {
   List<RoleOption> all = [];
   foreach (var c in App.Setting<RolesSetup>().Offered) {
-    all.Add(new RoleOption { Role = c.Role, Label = c.Label, Description = c.Description });
+    if (c.Grantable && HeldThere(c.HeldIn, where)) { all.Add(new RoleOption { Role = c.Role, Label = c.Label, Description = c.Description }); }
   }
   return all;
+}
+
+/// May a role offered as `heldIn` be held `where`?
+public bool HeldThere(RoleScope heldIn, RoleScope where) {
+  return where == RoleScope.Anywhere || heldIn == RoleScope.Anywhere || heldIn == where;
 }
 
 /// One offered role, as a page holds it — what `OfferedRoles` answers.
@@ -201,13 +244,17 @@ public class RoleOption {
   public string Description = "";
 }
 
-/// Is `r` one the app offers through its pages?
-public bool IsOfferedRole(role r) {
-  foreach (var c in App.Setting<RolesSetup>().Offered) { if (c.Role != null && c.Role.Value == r) { return true; } }
+/// Is `r` one the app offers through its pages — and, given `where`, offered to be held there? A role listed with
+/// `Grantable = false` is not: it is named, never handed out.
+public bool IsOfferedRole(role r, RoleScope where = RoleScope.Anywhere) {
+  foreach (var c in App.Setting<RolesSetup>().Offered) {
+    if (c.Grantable && c.Role != null && c.Role.Value == r && HeldThere(c.HeldIn, where)) { return true; }
+  }
   return false;
 }
 
-/// A role's name for people — its `RoleChoice.Label`, or "" when the app does not offer it.
+/// A role's name for people — its `RoleChoice.Label` (a role listed `Grantable = false` included), or "" when the app does not
+/// list it.
 public string RoleLabel(role r) {
   foreach (var c in App.Setting<RolesSetup>().Offered) { if (c.Role != null && c.Role.Value == r) { return c.Label; } }
   return "";
