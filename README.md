@@ -92,3 +92,63 @@ address under the reserved `.invalid` domain: a system account, which is mailed 
 A package of your own can reference `Principal` and `RoleGrant` like any type, and name the app's roles as `role` —
 `role Level;` on an entity, `role.Authenticator` in a rule — which becomes the app's enum when the package is compiled
 into it. Fork this repository to change the contract itself.
+
+## Examples
+
+Taken from this package's own tests, which compile and run on every release.
+
+```osy
+using Osysharp.Identity;
+using IdentityKitTests;
+
+[Test(Club)]
+void a_member_signs_in_with_the_apps_own_method() {
+  string ticket = "";
+  runas (AuthBootstrap) { ticket = SignInWithPin("1001", "4321"); }
+  Assert.NotEqual("", ticket);
+}
+```
+
+From [`tests/identity.test.osy`](tests/identity.test.osy).
+
+```osy
+using Osysharp.Identity;
+using IdentityKitTests;
+
+[Test(Club)]
+void a_wrong_pin_and_an_unknown_number_both_get_nothing() {
+  string wrong = "x";
+  string unknown = "x";
+  runas (AuthBootstrap) { wrong = SignInWithPin("1001", "0000"); unknown = SignInWithPin("9999", "4321"); }
+  Assert.Equal("", wrong);
+  Assert.Equal("", unknown);
+}
+```
+
+From [`tests/identity.test.osy`](tests/identity.test.osy).
+
+```osy
+using Osysharp.Identity;
+using IdentityKitTests;
+
+[Test(Club)]
+void a_deactivated_member_cannot_sign_in() {
+  runas (AuthBootstrap) { Member.Single(m => m.Number == "1001").IsActive = false; }
+  string ticket = "x";
+  runas (AuthBootstrap) { ticket = SignInWithPin("1001", "4321"); }
+  Assert.Equal("", ticket);
+}
+```
+
+From [`tests/identity.test.osy`](tests/identity.test.osy).
+
+## Learn more
+
+- [The Osysharp.Identity reference](https://osysharp.com/reference/security/identity-kit/)
+- [Osysharp.Identity in the package catalogue](https://osysharp.com/packages/#osysharp-identity)
+- [The Osy# reference](https://osysharp.com/reference/) — the language, the runtime and every kit
+- [`llms-full.txt`](https://osysharp.com/llms-full.txt) — the whole reference and specification as one Markdown file, for a coding agent
+
+## Licence
+
+MIT — see [`LICENSE`](LICENSE).
