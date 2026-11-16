@@ -54,12 +54,16 @@ public entity Principal {
     // states on a base binds every type derived from it (SECURITY-INVARIANT(a-base-types-deny-covers-its-subtypes)):
     //   `partial entity Principal { security { deny read when !IsLead where Id != user.Id; } }`
     allow read when IsAuthenticated || IsAuthenticator;
-    // Accounts are made by the sign-in flow (sign-up, an invitation) and by an operator (`osy user add`), never by
-    // app code running as someone.
-    allow create when IsAuthenticator;
+    // Accounts are made by the sign-in flow (sign-up), by an operator (`osy user add`) and by a kit's run that makes one
+    // for a newcomer (an invitation's — `MakesAccounts`), never by app code running as someone.
+    allow create when IsAuthenticator || MakesAccounts;
     // A person edits their own account; the sign-in flow edits any.
     allow update when IsAuthenticated || IsAuthenticator where Id == user.Id;
     allow update when IsAuthenticator;
+    // A kit's run that switches an account off or on (the user manager's audited change) writes that and nothing else;
+    // one that puts an API key on an account or takes it off, the key slots alone (`DeactivatesAccounts`, `KeepsApiKeys`).
+    allow update IsActive when DeactivatesAccounts;
+    allow update ApiKeyHash, ApiKeyHash2, ApiKeyUsedAt, ApiKey2UsedAt when KeepsApiKeys;
     // …but not what the account's trust rests on. The address that signs in changes only through a verified change;
     // whether it was proven, where the account comes from, whether it may sign in, and when it last did, are the
     // sign-in flow's to write.
@@ -67,16 +71,16 @@ public entity Principal {
     deny update EmailVerifiedAt when !IsAuthenticator;
     deny update Source when !IsAuthenticator;
     deny update ExternalId when !IsAuthenticator;
-    deny update IsActive when !IsAuthenticator;
+    deny update IsActive when !IsAuthenticator && !DeactivatesAccounts;
     deny update LastLoginAt when !IsAuthenticator;
     // An API key's hash is a credential: nobody but the sign-in flow reads it (else it rides `Session.CurrentUser` to a
     // browser), and nobody signed in writes it — the platform mints and revokes keys outside the app's rules.
-    deny read ApiKeyHash when !IsAuthenticator;
-    deny read ApiKeyHash2 when !IsAuthenticator;
-    deny update ApiKeyHash when !IsAuthenticator;
-    deny update ApiKeyHash2 when !IsAuthenticator;
-    deny update ApiKeyUsedAt when !IsAuthenticator;
-    deny update ApiKey2UsedAt when !IsAuthenticator;
+    deny read ApiKeyHash when !IsAuthenticator && !KeepsApiKeys;
+    deny read ApiKeyHash2 when !IsAuthenticator && !KeepsApiKeys;
+    deny update ApiKeyHash when !IsAuthenticator && !KeepsApiKeys;
+    deny update ApiKeyHash2 when !IsAuthenticator && !KeepsApiKeys;
+    deny update ApiKeyUsedAt when !IsAuthenticator && !KeepsApiKeys;
+    deny update ApiKey2UsedAt when !IsAuthenticator && !KeepsApiKeys;
   }
 }
 
@@ -110,8 +114,36 @@ public entity RoleGrant {
     allow read when IsAuthenticated || IsAuthenticator where Member == user;
     allow read when IsAuthenticator;
     allow create when IsAuthenticator;
+    // A kit's run that gives the roles a person decided on (an invitation's, a manager's recorded change)…
+    allow read, create when GrantsRoles;
+    // …and one that takes them away (a manager's recorded change) — asked apart, so a run that only gives holds no delete.
+    allow read, delete when RevokesRoles;
   }
 }
+
+/// Who makes an account besides the sign-in flow: nobody, until the app says so — or a kit that uses this one, for its
+/// own actor alone (`policy Osysharp.Identity.MakesAccounts += user == Actor.Of<InvitationRun>();` — an invitation's
+/// newcomer). A kind of account derived from `Principal` in another kit asks its own question of the same name too.
+[Extensible] virtual policy MakesAccounts => false;
+
+/// Who switches an account off and on besides the sign-in flow: nobody, until the app says so — or a kit that uses this
+/// one, for its own actor alone (`policy DeactivatesAccounts += user == Actor.Of<AccessChanger>();`). It writes
+/// `IsActive` and no other column.
+[Extensible] virtual policy DeactivatesAccounts => false;
+
+/// Who puts an API key's hash on an account and takes it off besides the sign-in flow: nobody, until the app says so —
+/// or a kit that uses this one, for its own actor alone. It reads and writes the key slots and no other column.
+[Extensible] virtual policy KeepsApiKeys => false;
+
+/// Who gives the app's roles besides the sign-in flow and the app's own grant: nobody, until the app says so — or a kit
+/// that uses this one, for its own actor alone (`policy GrantsRoles += user == Actor.Of<InvitationRun>();`). It reads and
+/// makes role grants; taking one away is `RevokesRoles`.
+[Extensible] virtual policy GrantsRoles => false;
+
+/// Who takes the app's roles away besides the app's own code: nobody, until the app says so — or a kit that uses this
+/// one, for its own actor alone (`policy RevokesRoles += user == Actor.Of<AccessChanger>();`). It reads and deletes role
+/// grants, and makes none.
+[Extensible] virtual policy RevokesRoles => false;
 
 /// The sign-in flow: an `[AuthMethod]` the app wires into `app.AuthBootstrap`, running as the ephemeral principal that
 /// bears the app's `Authenticator` role — the ONLY caller that may read a credential, make an account or grant a role.
