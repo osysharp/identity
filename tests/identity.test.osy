@@ -76,6 +76,28 @@ void members_see_each_other_but_never_a_pin() {
   }
 }
 
+/// How a key was minted (provider, hosted domain) is the platform's record: nobody signed in reads it — not another member, and
+/// not the holder — while the sign-in flow does (OP-IdP1d-7).
+[Test(Club)]
+void nobody_signed_in_reads_how_a_key_was_minted() {
+  runas (AuthBootstrap) {
+    var sam = Member.Single(m => m.Number == "1002");
+    sam.ApiKeyMintedWith = "google|acme.test|h";
+    sam.ApiKey2MintedWith = "google|acme.test|h2";
+  }
+  runas (AuthBootstrap) { Assert.Equal("google|acme.test|h", Member.Single(m => m.Number == "1002").ApiKeyMintedWith); }
+  runas (Ada) {
+    var sam = Member.Single(m => m.Number == "1002");
+    Assert.Equal("Sam", sam.DisplayName);
+    Assert.Null(sam.ApiKeyMintedWith);
+    Assert.Null(sam.ApiKey2MintedWith);
+  }
+  runas (Sam) {
+    Assert.Null(Member.Single(m => m.Number == "1002").ApiKeyMintedWith);
+    Assert.Null(Member.Single(m => m.Number == "1002").ApiKey2MintedWith);
+  }
+}
+
 [Test(Club)]
 void a_member_renames_themself_but_cannot_change_the_address_that_signs_in() {
   runas (Ada) { SetMyName("Ada L."); }
@@ -104,6 +126,13 @@ void a_page_offers_the_roles_the_club_lists_in_its_order() {
   Assert.Equal(ClubRole.Steward, offered[1].Role);
   Assert.Equal("Keeps the hall and posts the notices.", offered[1].Description);
   Assert.False(offered.Any(o => o.Role == ClubRole.Authenticator));
+}
+
+/// A role the app lists without a mark is Protected: Admin maps it only with care, never to a whole group by default.
+[Test(Club)]
+void role_choice_mapping_defaults_to_protected() {
+  Assert.Equal(RoleMapping.Protected, new RoleChoice { Role = ClubRole.Member }.Mapping);
+  Assert.Equal(RoleMapping.Protected, App.Setting<RolesSetup>().Offered[0].Mapping);
 }
 
 [Test(Club)]

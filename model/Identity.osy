@@ -44,6 +44,12 @@ public entity Principal {
   DateTime? ApiKeyUsedAt;
   /// When the key in `ApiKeyHash2` was last used.
   DateTime? ApiKey2UsedAt;
+  /// HOW the session that minted the key in `ApiKeyHash` was made, as the platform recorded it at the mint: the provider type and
+  /// hosted domain its ticket carried, bound to that key alone. Null for a key minted after a password (or by a run). Written by
+  /// the platform only; Admin's tool server asks it of a person an organisation's "Sign-in only through the provider" binds.
+  [MaxLength(400)] string? ApiKeyMintedWith;
+  /// The same, for the key in `ApiKeyHash2`.
+  [MaxLength(400)] string? ApiKey2MintedWith;
 
   // ⚠ This is a package's entity, so its block is the FLOOR every app — and every type derived from it — may only
   //   tighten (SECURITY-INVARIANT(a-package-floor-covers-its-subtypes)). One rule per kind of caller: `when` is who,
@@ -81,6 +87,14 @@ public entity Principal {
     deny update ApiKeyHash2 when !IsAuthenticator && !KeepsApiKeys;
     deny update ApiKeyUsedAt when !IsAuthenticator && !KeepsApiKeys;
     deny update ApiKey2UsedAt when !IsAuthenticator && !KeepsApiKeys;
+    // How a key was minted is the platform's record: nobody signed in writes it, a kit's key run included (a key it puts in a
+    // slot never inherits it: the record is bound to the key it was made for). SECURITY-INVARIANT(a-bound-persons-own-key-needs-the-providers-mint).
+    deny update ApiKeyMintedWith when !IsAuthenticator;
+    deny update ApiKey2MintedWith when !IsAuthenticator;
+    // …and nobody signed in reads it, the holder included: it names a provider, a hosted domain and how each person's key was
+    // made — the platform reads it beside the hash, as the sign-in flow (OP-IdP1d-7).
+    deny read ApiKeyMintedWith when !IsAuthenticator;
+    deny read ApiKey2MintedWith when !IsAuthenticator;
   }
 }
 
@@ -207,6 +221,20 @@ public class RoleChoice {
   /// admin" on a person an operator's tooling made one — while no page offers it, and the kits that grant roles refuse
   /// to grant or take it (it is not in `OfferedRoles`, and `IsOfferedRole` answers false).
   public bool Grantable = true;
+  /// How the organisation's Admin may hand the role to its people (ORGPOL OP-6c): `Protected` (the default) is mapped only
+  /// one by one, `Broad` may be mapped to a whole group, and `Never` is an owner-like role no mapping ever gives. Each build
+  /// reports it to Admin with the role.
+  public RoleMapping Mapping = RoleMapping.Protected;
+}
+
+/// How the organisation's Admin may map people to an offered role — `RoleChoice.Mapping`. An unmarked role is `Protected`.
+public enum RoleMapping {
+  /// Mapped only with care: the default.
+  Protected,
+  /// May be mapped to a whole group of the organisation's people.
+  Broad,
+  /// Never mapped: an owner-like role the app gives only itself.
+  Never
 }
 
 /// Where an offered role may be held — `RoleChoice.HeldIn`.
